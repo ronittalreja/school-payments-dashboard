@@ -6,9 +6,7 @@ const { body, validationResult } = require('express-validator');
 const Order = require('../models/Order');
 const OrderStatus = require('../models/OrderStatus');
 const router = express.Router();
-
-// Create payment route - FIXED VERSION
-router.post('/create-payment', 
+  router.post('/create-payment', 
   authenticateToken,
   [
     body('school_id').notEmpty().withMessage('School ID is required'),
@@ -34,9 +32,7 @@ router.post('/create-payment',
     try {
       console.log('=== CREATE PAYMENT REQUEST ===');
       console.log('Request body:', JSON.stringify(req.body, null, 2));
-      
-      // Check validation errors
-      const errors = validationResult(req);
+        const errors = validationResult(req);
       if (!errors.isEmpty()) {
         console.log('Validation errors:', errors.array());
         return res.status(400).json({
@@ -54,9 +50,7 @@ router.post('/create-payment',
         gateway_name = 'Edviron',
         trustee_id
       } = req.body;
-
-      // Validate environment variables
-      if (!process.env.PG_KEY) {
+        if (!process.env.PG_KEY) {
         console.error('PG_KEY not found in environment');
         return res.status(500).json({
           success: false,
@@ -71,29 +65,21 @@ router.post('/create-payment',
           message: 'Payment API key configuration missing'
         });
       }
-
-      // Generate unique custom order ID
-      const timestamp = Date.now();
+        const timestamp = Date.now();
       const randomStr = Math.random().toString(36).substr(2, 9);
       const custom_order_id = `ORD_${timestamp}_${randomStr}`;
 
       console.log('Generated custom_order_id:', custom_order_id);
-
-      // Create JWT payload for signing
-      const jwtPayload = {
+        const jwtPayload = {
         school_id,
         amount: amount.toString(),
         callback_url
       };
 
       console.log('JWT payload:', jwtPayload);
-
-      // Sign JWT using PG key
-      const sign = jwt.sign(jwtPayload, process.env.PG_KEY, { algorithm: 'HS256' });
+        const sign = jwt.sign(jwtPayload, process.env.PG_KEY, { algorithm: 'HS256' });
       console.log('Generated JWT sign:', sign);
-
-      // Prepare request body for payment API
-      const requestBody = {
+        const requestBody = {
         school_id,
         amount: amount.toString(),
         callback_url,
@@ -103,8 +89,7 @@ router.post('/create-payment',
       console.log('Payment API request body:', requestBody);
 
       try {
-        // Make API call to create collect request FIRST
-        console.log('Making API call to:', 'https://dev-vanilla.edviron.com/erp/create-collect-request');
+          console.log('Making API call to:', 'https://dev-vanilla.edviron.com/erp/create-collect-request');
         console.log('Using API Key:', process.env.API_KEY?.substring(0, 20) + '...');
         
         const response = await axios.post(
@@ -124,9 +109,7 @@ router.post('/create-payment',
         if (!response.data || !response.data.collect_request_id) {
           throw new Error('Invalid response from payment API - missing collect_request_id');
         }
-
-        // NOW create order with the collect_request_id we got from API
-        const orderData = {
+          const orderData = {
           school_id,
           trustee_id: trustee_id || null,
           student_info,
@@ -144,9 +127,7 @@ router.post('/create-payment',
         await order.save();
 
         console.log('Order saved successfully:', order._id);
-
-        // Create initial order status - FIXED: Use custom_order_id as collect_id
-        const orderStatus = new OrderStatus({
+          const orderStatus = new OrderStatus({
           collect_id: order.custom_order_id, // Use custom_order_id here, not _id
           collect_request_id: response.data.collect_request_id,
           order_amount: parseFloat(amount), // Store original order amount
@@ -163,9 +144,7 @@ router.post('/create-payment',
 
         await orderStatus.save();
         console.log('OrderStatus saved successfully');
-
-        // Send success response
-        res.status(200).json({
+          res.status(200).json({
           success: true,
           message: 'Payment request created successfully',
           data: {
@@ -204,9 +183,7 @@ router.post('/create-payment',
 
     } catch (error) {
       console.error('Payment creation error:', error);
-      
-      // If it's a MongoDB duplicate key error
-      if (error.code === 11000) {
+        if (error.code === 11000) {
         const field = Object.keys(error.keyPattern || {})[0] || 'field';
         return res.status(400).json({
           success: false,
@@ -223,59 +200,97 @@ router.post('/create-payment',
     }
   }
 );
-
-// Get payment list with proper data - NEW ROUTE
-router.get('/payments', authenticateToken, async (req, res) => {
+  router.get('/payments', authenticateToken, async (req, res) => {
   try {
     const { page = 1, limit = 10, status, school_id } = req.query;
-    
-    // Build filter
-    const filter = {};
+      const filter = {};
     if (status) filter.status = status;
     if (school_id) filter.school_id = school_id;
+      const pipeline = [
+      {
+        $match: filter
+      },
+      {
+        $lookup: {
+          from: 'orderstatuses',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id instead of _id
+          foreignField: 'collect_id',
+          as: 'orderStatus'
+        }
+      },
+      {
+        $unwind: {
+          path: '$orderStatus',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $project: {
+          order_id: '$_id',
+          custom_order_id: 1,
+          collect_request_id: 1,
+          student_name: '$student_info.name',
+          student_email: '$student_info.email',
+          student_id: '$student_info.id',
+          school_id: 1,
+          amount: 1,
+          transaction_amount: {
+            $cond: {
+              if: '$orderStatus.transaction_amount',
+              then: '$orderStatus.transaction_amount',
+              else: 0
+            }
+          },
+          payment_mode: {
+            $cond: {
+              if: '$orderStatus.payment_mode',
+              then: '$orderStatus.payment_mode',
+              else: ''
+            }
+          },
+          payment_time: {
+            $cond: {
+              if: '$orderStatus.payment_time',
+              then: '$orderStatus.payment_time',
+              else: '$createdAt'
+            }
+          },
+          status: {
+            $cond: {
+              if: '$orderStatus.status',
+              then: '$orderStatus.status',
+              else: '$status'
+            }
+          },
+          gateway: {
+            $cond: {
+              if: '$orderStatus.gateway',
+              then: '$orderStatus.gateway',
+              else: '$gateway_name'
+            }
+          },
+          created_at: '$createdAt',
+          updated_at: '$updatedAt'
+        }
+      },
+      {
+        $sort: { created_at: -1 }
+      },
+      {
+        $skip: (parseInt(page) - 1) * parseInt(limit)
+      },
+      {
+        $limit: parseInt(limit)
+      }
+    ];
 
-    // Get orders with pagination
-    const orders = await Order.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
-
-    // Get corresponding order statuses
-    const orderStatuses = await OrderStatus.find({
-      collect_id: { $in: orders.map(o => o.custom_order_id) }
-    });
-
-    // Create a map for quick lookup
-    const statusMap = {};
-    orderStatuses.forEach(status => {
-      statusMap[status.collect_id] = status;
-    });
-
-    // Combine the data
-    const paymentsWithDetails = orders.map(order => {
-      const orderStatus = statusMap[order.custom_order_id] || {};
-      
-      return {
-        order_id: order._id,
-        custom_order_id: order.custom_order_id,
-        collect_request_id: order.collect_request_id,
-        student_name: order.student_info.name,
-        student_email: order.student_info.email,
-        student_id: order.student_info.id,
-        school_id: order.school_id,
-        amount: order.amount,
-        transaction_amount: orderStatus.transaction_amount || 0,
-        payment_mode: orderStatus.payment_mode || '',
-        payment_time: orderStatus.payment_time || order.createdAt,
-        status: orderStatus.status || order.status,
-        gateway: orderStatus.gateway || order.gateway_name,
-        created_at: order.createdAt,
-        updated_at: order.updatedAt
-      };
-    });
-
-    // Get total count
-    const total = await Order.countDocuments(filter);
+    const paymentsWithDetails = await Order.aggregate(pipeline);
+      const countPipeline = [
+      { $match: filter },
+      { $count: 'total' }
+    ];
+    const countResult = await Order.aggregate(countPipeline);
+    const total = countResult.length > 0 ? countResult[0].total : 0;
 
     res.json({
       success: true,
@@ -297,9 +312,7 @@ router.get('/payments', authenticateToken, async (req, res) => {
     });
   }
 });
-
-// Check payment status using external API
-router.get('/check-payment-status/:collect_request_id', authenticateToken, async (req, res) => {
+  router.get('/check-payment-status/:collect_request_id', authenticateToken, async (req, res) => {
   try {
     const { collect_request_id } = req.params;
     const { school_id } = req.query;
@@ -321,9 +334,7 @@ router.get('/check-payment-status/:collect_request_id', authenticateToken, async
         message: 'Payment gateway configuration missing'
       });
     }
-
-    // Create JWT for status check
-    const jwtPayload = {
+      const jwtPayload = {
       school_id,
       collect_request_id
     };
@@ -333,9 +344,7 @@ router.get('/check-payment-status/:collect_request_id', authenticateToken, async
     const sign = jwt.sign(jwtPayload, process.env.PG_KEY, { algorithm: 'HS256' });
 
     console.log('Making status check API call...');
-
-    // Make API call to check status
-    const response = await axios.get(
+      const response = await axios.get(
       `https://dev-vanilla.edviron.com/erp/collect-request/${collect_request_id}`,
       {
         params: {

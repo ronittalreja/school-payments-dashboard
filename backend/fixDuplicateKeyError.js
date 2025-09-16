@@ -1,10 +1,7 @@
-// fixDuplicateKeyError.js - Script to fix the duplicate key error
-const mongoose = require('mongoose');
+  const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
-
-// Connect to MongoDB
-async function connectDB() {
+  async function connectDB() {
   try {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/school', {
       useNewUrlParser: true,
@@ -16,9 +13,7 @@ async function connectDB() {
     process.exit(1);
   }
 }
-
-// Define the OrderStatus schema
-const orderStatusSchema = new mongoose.Schema({
+  const orderStatusSchema = new mongoose.Schema({
   custom_order_id: {
     type: String,
     unique: true,
@@ -60,23 +55,17 @@ const orderStatusSchema = new mongoose.Schema({
 });
 
 const OrderStatus = mongoose.model('OrderStatus', orderStatusSchema);
-
-// Fix duplicate key error
-async function fixDuplicateKeyError() {
+  async function fixDuplicateKeyError() {
   try {
     console.log('🔧 Starting duplicate key error fix...\n');
-
-    // Find all documents with null custom_order_id
-    const nullDocs = await OrderStatus.find({ custom_order_id: null });
+      const nullDocs = await OrderStatus.find({ custom_order_id: null });
     console.log(`📊 Found ${nullDocs.length} documents with null custom_order_id`);
 
     if (nullDocs.length === 0) {
       console.log('✅ No null custom_order_id found. Database is clean.');
       return;
     }
-
-    // Update each document with a unique ID
-    let updatedCount = 0;
+      let updatedCount = 0;
     for (const doc of nullDocs) {
       try {
         const uniqueId = uuidv4();
@@ -92,9 +81,7 @@ async function fixDuplicateKeyError() {
     }
 
     console.log(`\n🎉 Successfully updated ${updatedCount} out of ${nullDocs.length} documents`);
-
-    // Verify the fix
-    const remainingNulls = await OrderStatus.find({ custom_order_id: null });
+      const remainingNulls = await OrderStatus.find({ custom_order_id: null });
     console.log(`📊 Remaining documents with null custom_order_id: ${remainingNulls.length}`);
 
     if (remainingNulls.length === 0) {
@@ -106,22 +93,16 @@ async function fixDuplicateKeyError() {
     throw error;
   }
 }
-
-// Recreate index properly
-async function recreateIndex() {
+  async function recreateIndex() {
   try {
     console.log('🔧 Recreating custom_order_id index...');
-    
-    // Drop existing index
-    try {
+      try {
       await OrderStatus.collection.dropIndex('custom_order_id_1');
       console.log('✅ Dropped existing custom_order_id index');
     } catch (error) {
       console.log('ℹ️  Index might not exist, continuing...');
     }
-
-    // Create new sparse index
-    await OrderStatus.collection.createIndex(
+      await OrderStatus.collection.createIndex(
       { custom_order_id: 1 }, 
       { unique: true, sparse: true }
     );
@@ -132,9 +113,7 @@ async function recreateIndex() {
     throw error;
   }
 }
-
-// Main execution function
-async function main() {
+  async function main() {
   try {
     await connectDB();
     
@@ -155,9 +134,7 @@ async function main() {
     process.exit(0);
   }
 }
-
-// Run the script
-if (require.main === module) {
+  if (require.main === module) {
   main();
 }
 

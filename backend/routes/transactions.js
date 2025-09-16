@@ -5,9 +5,7 @@ const Order = require('../models/Order');
 const OrderStatus = require('../models/OrderStatus');
 
 const router = express.Router();
-
-// Get all transactions with pagination and filters
-router.get('/', authenticateToken, [
+  router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
   query('sort').optional().isIn(['payment_time', 'status', 'transaction_amount', 'order_amount']).withMessage('Invalid sort field'),
@@ -21,22 +19,22 @@ router.get('/', authenticateToken, [
     const skip = (page - 1) * limit;
     const sort = req.query.sort || 'createdAt';
     const order = req.query.order === 'asc' ? 1 : -1;
-
-    // Build match conditions
-    const matchConditions = {};
-    if (req.query.status) {
-      matchConditions['orderStatus.status'] = req.query.status;
-    }
+      const orderMatchConditions = {};
     if (req.query.school_id) {
-      matchConditions.school_id = req.query.school_id;
+      orderMatchConditions.school_id = req.query.school_id;
     }
-
-    // Aggregation pipeline
-    const pipeline = [
+      const statusMatchConditions = {};
+    if (req.query.status) {
+      statusMatchConditions['orderStatus.status'] = req.query.status;
+    }
+      const pipeline = [
+      {
+        $match: orderMatchConditions
+      },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id instead of _id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -48,37 +46,80 @@ router.get('/', authenticateToken, [
         }
       },
       {
-        $match: matchConditions
+        $match: statusMatchConditions
       },
       {
-        $project: {
-          collect_id: '$_id',
-          school_id: 1,
-          gateway: '$gateway_name',
-          order_amount: '$orderStatus.order_amount',
-          transaction_amount: '$orderStatus.transaction_amount',
-          status: '$orderStatus.status',
-          custom_order_id: 1,
-          student_info: 1,
-          payment_time: '$orderStatus.payment_time',
-          payment_mode: '$orderStatus.payment_mode',
-          bank_reference: '$orderStatus.bank_reference',
-          createdAt: 1
+        $addFields: {
+            effective_payment_time: {
+            $cond: {
+              if: '$orderStatus.payment_time',
+              then: '$orderStatus.payment_time',
+              else: '$createdAt'
+            }
+          },
+          effective_status: {
+            $cond: {
+              if: '$orderStatus.status',
+              then: '$orderStatus.status',
+              else: 'pending'
+            }
+          }
         }
       },
       {
-        $sort: { [sort]: order }
+        $project: {
+          order_id: '$custom_order_id',  // Use custom_order_id as order_id
+          school_id: 1,
+          gateway: '$gateway_name',
+          order_amount: {
+            $cond: {
+              if: '$orderStatus.order_amount',
+              then: '$orderStatus.order_amount',
+              else: '$amount'  // Fallback to original order amount
+            }
+          },
+          transaction_amount: {
+            $cond: {
+              if: '$orderStatus.transaction_amount',
+              then: '$orderStatus.transaction_amount',
+              else: 0
+            }
+          },
+          status: '$effective_status',
+          custom_order_id: 1,
+          student_info: 1,
+          payment_time: '$effective_payment_time',
+          payment_mode: {
+            $cond: {
+              if: '$orderStatus.payment_mode',
+              then: '$orderStatus.payment_mode',
+              else: 'N/A'
+            }
+          },
+          bank_reference: {
+            $cond: {
+              if: '$orderStatus.bank_reference',
+              then: '$orderStatus.bank_reference',
+              else: ''
+            }
+          },
+          createdAt: 1,
+          updatedAt: 1
+        }
+      },
+      {
+        $sort: { 
+          [sort === 'payment_time' ? 'effective_payment_time' : sort]: order 
+        }
       }
     ];
-
-    // Get total count
-    const countPipeline = [...pipeline, { $count: 'total' }];
+      const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await Order.aggregate(countPipeline);
     const total = countResult.length > 0 ? countResult[0].total : 0;
-
-    // Get paginated data
-    const dataPipeline = [...pipeline, { $skip: skip }, { $limit: limit }];
+      const dataPipeline = [...pipeline, { $skip: skip }, { $limit: limit }];
     const transactions = await Order.aggregate(dataPipeline);
+
+    console.log(`Found ${transactions.length} transactions for page ${page}`);
 
     res.json({
       success: true,
@@ -97,14 +138,13 @@ router.get('/', authenticateToken, [
     console.error('Get transactions error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch transactions'
+      message: 'Failed to fetch transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
-
-// Get transactions by school
-router.get('/school/:schoolId', authenticateToken, [
-  param('schoolId').isMongoId().withMessage('Invalid school ID'),
+  router.get('/school/:schoolId', authenticateToken, [
+  param('schoolId').notEmpty().withMessage('Invalid school ID'),  // Changed from isMongoId as school_id might not be ObjectId
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100')
 ], async (req, res) => {
@@ -113,15 +153,14 @@ router.get('/school/:schoolId', authenticateToken, [
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-
-    const pipeline = [
+      const pipeline = [
       {
         $match: { school_id: schoolId }
       },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -133,33 +172,74 @@ router.get('/school/:schoolId', authenticateToken, [
         }
       },
       {
-        $project: {
-          collect_id: '$_id',
-          school_id: 1,
-          gateway: '$gateway_name',
-          order_amount: '$orderStatus.order_amount',
-          transaction_amount: '$orderStatus.transaction_amount',
-          status: '$orderStatus.status',
-          custom_order_id: 1,
-          student_info: 1,
-          payment_time: '$orderStatus.payment_time',
-          payment_mode: '$orderStatus.payment_mode',
-          bank_reference: '$orderStatus.bank_reference'
+        $addFields: {
+          effective_payment_time: {
+            $cond: {
+              if: '$orderStatus.payment_time',
+              then: '$orderStatus.payment_time',
+              else: '$createdAt'
+            }
+          }
         }
       },
       {
-        $sort: { createdAt: -1 }
+        $project: {
+          order_id: '$custom_order_id',
+          school_id: 1,
+          gateway: '$gateway_name',
+          order_amount: {
+            $cond: {
+              if: '$orderStatus.order_amount',
+              then: '$orderStatus.order_amount',
+              else: '$amount'
+            }
+          },
+          transaction_amount: {
+            $cond: {
+              if: '$orderStatus.transaction_amount',
+              then: '$orderStatus.transaction_amount',
+              else: 0
+            }
+          },
+          status: {
+            $cond: {
+              if: '$orderStatus.status',
+              then: '$orderStatus.status',
+              else: 'pending'
+            }
+          },
+          custom_order_id: 1,
+          student_info: 1,
+          payment_time: '$effective_payment_time',
+          payment_mode: {
+            $cond: {
+              if: '$orderStatus.payment_mode',
+              then: '$orderStatus.payment_mode',
+              else: 'N/A'
+            }
+          },
+          bank_reference: {
+            $cond: {
+              if: '$orderStatus.bank_reference',
+              then: '$orderStatus.bank_reference',
+              else: ''
+            }
+          },
+          createdAt: 1,
+          updatedAt: 1
+        }
+      },
+      {
+        $sort: { effective_payment_time: -1 }
       }
     ];
-
-    // Get total count
-    const countPipeline = [...pipeline, { $count: 'total' }];
+      const countPipeline = [...pipeline, { $count: 'total' }];
     const countResult = await Order.aggregate(countPipeline);
     const total = countResult.length > 0 ? countResult[0].total : 0;
-
-    // Get paginated data
-    const dataPipeline = [...pipeline, { $skip: skip }, { $limit: limit }];
+      const dataPipeline = [...pipeline, { $skip: skip }, { $limit: limit }];
     const transactions = await Order.aggregate(dataPipeline);
+
+    console.log(`Found ${transactions.length} school transactions for ${schoolId}`);
 
     res.json({
       success: true,
@@ -178,59 +258,61 @@ router.get('/school/:schoolId', authenticateToken, [
     console.error('Get school transactions error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch school transactions'
+      message: 'Failed to fetch school transactions',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
-
-// Check transaction status
-router.get('/status/:customOrderId', authenticateToken, [
+  router.get('/status/:customOrderId', authenticateToken, [
   param('customOrderId').notEmpty().withMessage('Custom order ID is required')
 ], async (req, res) => {
   try {
     const { customOrderId } = req.params;
 
+    console.log(`Checking status for order: ${customOrderId}`);
+
     const order = await Order.findOne({ custom_order_id: customOrderId });
     if (!order) {
+      console.log(`Order not found: ${customOrderId}`);
       return res.status(404).json({
         success: false,
         message: 'Order not found'
       });
     }
-
-    const orderStatus = await OrderStatus.findOne({ collect_id: order._id });
-    if (!orderStatus) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order status not found'
-      });
-    }
+      const orderStatus = await OrderStatus.findOne({ collect_id: customOrderId });
+    
+    console.log('Found order:', !!order);
+    console.log('Found orderStatus:', !!orderStatus);
+      const responseData = {
+      custom_order_id: order.custom_order_id,
+      collect_id: order.custom_order_id,  // Use custom_order_id as collect_id
+      school_id: order.school_id,
+      student_info: order.student_info,
+      gateway: order.gateway_name,
+      order_amount: orderStatus ? orderStatus.order_amount : order.amount,
+      transaction_amount: orderStatus ? orderStatus.transaction_amount : 0,
+      status: orderStatus ? orderStatus.status : order.status,
+      payment_mode: orderStatus ? orderStatus.payment_mode : 'N/A',
+      payment_details: orderStatus ? orderStatus.payment_details : null,
+      bank_reference: orderStatus ? orderStatus.bank_reference : '',
+      payment_message: orderStatus ? orderStatus.payment_message : '',
+      payment_time: orderStatus ? orderStatus.payment_time : order.createdAt,
+      error_message: orderStatus ? orderStatus.error_message : '',
+      created_at: order.createdAt,
+      updated_at: order.updatedAt
+    };
 
     res.json({
       success: true,
-      data: {
-        custom_order_id: order.custom_order_id,
-        collect_id: order._id,
-        school_id: order.school_id,
-        student_info: order.student_info,
-        gateway: order.gateway_name,
-        order_amount: orderStatus.order_amount,
-        transaction_amount: orderStatus.transaction_amount,
-        status: orderStatus.status,
-        payment_mode: orderStatus.payment_mode,
-        payment_details: orderStatus.payment_details,
-        bank_reference: orderStatus.bank_reference,
-        payment_message: orderStatus.payment_message,
-        payment_time: orderStatus.payment_time,
-        error_message: orderStatus.error_message
-      }
+      data: responseData
     });
 
   } catch (error) {
     console.error('Check transaction status error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to check transaction status'
+      message: 'Failed to check transaction status',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });

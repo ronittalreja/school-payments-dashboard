@@ -1,5 +1,4 @@
-// backend/src/routes/dashboard.js
-
+  
 const express = require('express');
 const { query, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
@@ -9,10 +8,8 @@ const PaymentTransaction = require('../models/PaymentTransaction');
 const { logger } = require('../middleware/logger');
 
 const router = express.Router();
-
-// Get dashboard statistics
-router.get('/stats', authenticateToken, [
-  query('school_id').optional().isMongoId().withMessage('Invalid school ID'),
+  router.get('/stats', authenticateToken, [
+  query('school_id').optional().isString().withMessage('Invalid school ID'),
   query('date_from').optional().isISO8601().withMessage('Invalid date format for date_from'),
   query('date_to').optional().isISO8601().withMessage('Invalid date format for date_to')
 ], async (req, res) => {
@@ -29,24 +26,23 @@ router.get('/stats', authenticateToken, [
     const schoolId = req.query.school_id || process.env.SCHOOL_ID;
     const dateFrom = req.query.date_from ? new Date(req.query.date_from) : null;
     const dateTo = req.query.date_to ? new Date(req.query.date_to) : null;
-
-    // Build match conditions
-    const matchConditions = {};
+      const orderMatchConditions = {};
     if (schoolId) {
-      matchConditions.school_id = schoolId;
+      orderMatchConditions.school_id = schoolId;
     }
     if (dateFrom || dateTo) {
-      matchConditions.createdAt = {};
-      if (dateFrom) matchConditions.createdAt.$gte = dateFrom;
-      if (dateTo) matchConditions.createdAt.$lte = dateTo;
+      orderMatchConditions.createdAt = {};
+      if (dateFrom) orderMatchConditions.createdAt.$gte = dateFrom;
+      if (dateTo) orderMatchConditions.createdAt.$lte = dateTo;
     }
-
-    // Get transaction statistics
-    const stats = await Order.aggregate([
+      const stats = await Order.aggregate([
+      {
+        $match: orderMatchConditions
+      },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -58,68 +54,85 @@ router.get('/stats', authenticateToken, [
         }
       },
       {
-        $match: matchConditions
-      },
-      {
         $group: {
-          _id: '$orderStatus.status',
+          _id: {
+            $cond: {
+              if: '$orderStatus.status',
+              then: '$orderStatus.status',
+              else: 'pending'
+            }
+          },
           count: { $sum: 1 },
-          totalAmount: { $sum: '$orderStatus.order_amount' },
-          avgAmount: { $avg: '$orderStatus.order_amount' }
+          totalAmount: {
+            $sum: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          },
+          avgAmount: {
+            $avg: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          }
         }
       }
     ]);
-
-    // Get payment method distribution
-    const paymentMethods = await OrderStatus.aggregate([
+      const paymentMethods = await Order.aggregate([
       {
-        $lookup: {
-          from: 'orders',
-          localField: 'collect_id',
-          foreignField: '_id',
-          as: 'order'
-        }
+        $match: orderMatchConditions
       },
-      {
-        $unwind: '$order'
-      },
-      {
-        $match: {
-          ...matchConditions,
-          status: 'success'
-        }
-      },
-      {
-        $group: {
-          _id: '$payment_mode',
-          count: { $sum: 1 },
-          totalAmount: { $sum: '$transaction_amount' }
-        }
-      }
-    ]);
-
-    // Get monthly trends (last 12 months)
-    const monthlyTrends = await Order.aggregate([
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
       },
       {
-        $unwind: {
-          path: '$orderStatus',
-          preserveNullAndEmptyArrays: true
-        }
+        $unwind: '$orderStatus'
       },
       {
         $match: {
-          ...matchConditions,
+          'orderStatus.status': { $in: ['success', 'SUCCESS'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$orderStatus.payment_mode',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$orderStatus.transaction_amount' }
+        }
+      }
+    ]);
+      const monthlyTrends = await Order.aggregate([
+      {
+        $match: {
+          ...orderMatchConditions,
           createdAt: {
             $gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) // Last 12 months
           }
+        }
+      },
+      {
+        $lookup: {
+          from: 'orderstatuses',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
+          foreignField: 'collect_id',
+          as: 'orderStatus'
+        }
+      },
+      {
+        $unwind: {
+          path: '$orderStatus',
+          preserveNullAndEmptyArrays: true
         }
       },
       {
@@ -127,19 +140,31 @@ router.get('/stats', authenticateToken, [
           _id: {
             year: { $year: '$createdAt' },
             month: { $month: '$createdAt' },
-            status: '$orderStatus.status'
+            status: {
+              $cond: {
+                if: '$orderStatus.status',
+                then: '$orderStatus.status',
+                else: 'pending'
+              }
+            }
           },
           count: { $sum: 1 },
-          totalAmount: { $sum: '$orderStatus.order_amount' }
+          totalAmount: {
+            $sum: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          }
         }
       },
       {
         $sort: { '_id.year': 1, '_id.month': 1 }
       }
     ]);
-
-    // Process statistics
-    const processedStats = {
+      const processedStats = {
       totalTransactions: 0,
       successfulTransactions: 0,
       pendingTransactions: 0,
@@ -158,30 +183,28 @@ router.get('/stats', authenticateToken, [
       processedStats.totalTransactions += count;
       processedStats.totalAmount += amount;
 
-      switch (status) {
+      switch (status.toLowerCase()) {
         case 'success':
           processedStats.successfulTransactions = count;
           processedStats.successfulAmount = amount;
           break;
         case 'pending':
-          processedStats.pendingTransactions = count;
+        case 'processing':
+          processedStats.pendingTransactions += count;
           break;
         case 'failed':
-          processedStats.failedTransactions = count;
+        case 'failure':
+          processedStats.failedTransactions += count;
           break;
         case 'cancelled':
-          processedStats.cancelledTransactions = count;
+          processedStats.cancelledTransactions += count;
           break;
       }
     });
-
-    // Calculate average amount
-    if (processedStats.totalTransactions > 0) {
+      if (processedStats.totalTransactions > 0) {
       processedStats.averageAmount = processedStats.totalAmount / processedStats.totalTransactions;
     }
-
-    // Calculate success rate
-    processedStats.successRate = processedStats.totalTransactions > 0 
+      processedStats.successRate = processedStats.totalTransactions > 0 
       ? (processedStats.successfulTransactions / processedStats.totalTransactions * 100).toFixed(2)
       : 0;
 
@@ -222,11 +245,9 @@ router.get('/stats', authenticateToken, [
     });
   }
 });
-
-// Get recent transactions for dashboard
-router.get('/recent-transactions', authenticateToken, [
+  router.get('/recent-transactions', authenticateToken, [
   query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('Limit must be between 1 and 50'),
-  query('school_id').optional().isMongoId().withMessage('Invalid school ID')
+  query('school_id').optional().isString().withMessage('Invalid school ID')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -245,12 +266,14 @@ router.get('/recent-transactions', authenticateToken, [
     if (schoolId) {
       matchConditions.school_id = schoolId;
     }
-
-    const recentTransactions = await Order.aggregate([
+      const recentTransactions = await Order.aggregate([
+      {
+        $match: matchConditions
+      },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -262,25 +285,52 @@ router.get('/recent-transactions', authenticateToken, [
         }
       },
       {
-        $match: matchConditions
-      },
-      {
         $project: {
-          collect_id: '$_id',
+          order_id: '$custom_order_id',
           school_id: 1,
           gateway: '$gateway_name',
-          order_amount: '$orderStatus.order_amount',
-          transaction_amount: '$orderStatus.transaction_amount',
-          status: '$orderStatus.status',
+          order_amount: {
+            $cond: {
+              if: '$orderStatus.order_amount',
+              then: '$orderStatus.order_amount',
+              else: '$amount'
+            }
+          },
+          transaction_amount: {
+            $cond: {
+              if: '$orderStatus.transaction_amount',
+              then: '$orderStatus.transaction_amount',
+              else: 0
+            }
+          },
+          status: {
+            $cond: {
+              if: '$orderStatus.status',
+              then: '$orderStatus.status',
+              else: 'pending'
+            }
+          },
           custom_order_id: 1,
           student_info: 1,
-          payment_time: '$orderStatus.payment_time',
-          payment_mode: '$orderStatus.payment_mode',
+          payment_time: {
+            $cond: {
+              if: '$orderStatus.payment_time',
+              then: '$orderStatus.payment_time',
+              else: '$createdAt'
+            }
+          },
+          payment_mode: {
+            $cond: {
+              if: '$orderStatus.payment_mode',
+              then: '$orderStatus.payment_mode',
+              else: 'N/A'
+            }
+          },
           createdAt: 1
         }
       },
       {
-        $sort: { createdAt: -1 }
+        $sort: { payment_time: -1 }
       },
       {
         $limit: limit
@@ -308,12 +358,10 @@ router.get('/recent-transactions', authenticateToken, [
     });
   }
 });
-
-// Get transaction summary by date range
-router.get('/transaction-summary', authenticateToken, [
+  router.get('/transaction-summary', authenticateToken, [
   query('date_from').optional().isISO8601().withMessage('Invalid date format for date_from'),
   query('date_to').optional().isISO8601().withMessage('Invalid date format for date_to'),
-  query('school_id').optional().isMongoId().withMessage('Invalid school ID'),
+  query('school_id').optional().isString().withMessage('Invalid school ID'),
   query('group_by').optional().isIn(['day', 'week', 'month']).withMessage('group_by must be day, week, or month')
 ], async (req, res) => {
   try {
@@ -330,9 +378,7 @@ router.get('/transaction-summary', authenticateToken, [
     const dateFrom = req.query.date_from ? new Date(req.query.date_from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const dateTo = req.query.date_to ? new Date(req.query.date_to) : new Date();
     const groupBy = req.query.group_by || 'day';
-
-    // Build match conditions
-    const matchConditions = {
+      const matchConditions = {
       createdAt: {
         $gte: dateFrom,
         $lte: dateTo
@@ -342,9 +388,7 @@ router.get('/transaction-summary', authenticateToken, [
     if (schoolId) {
       matchConditions.school_id = schoolId;
     }
-
-    // Define grouping based on group_by parameter
-    let grouping;
+      let grouping;
     switch (groupBy) {
       case 'week':
         grouping = {
@@ -365,12 +409,14 @@ router.get('/transaction-summary', authenticateToken, [
           day: { $dayOfMonth: '$createdAt' }
         };
     }
-
-    const summary = await Order.aggregate([
+      const summary = await Order.aggregate([
+      {
+        $match: matchConditions
+      },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -382,17 +428,36 @@ router.get('/transaction-summary', authenticateToken, [
         }
       },
       {
-        $match: matchConditions
-      },
-      {
         $group: {
           _id: {
             ...grouping,
-            status: '$orderStatus.status'
+            status: {
+              $cond: {
+                if: '$orderStatus.status',
+                then: '$orderStatus.status',
+                else: 'pending'
+              }
+            }
           },
           count: { $sum: 1 },
-          totalAmount: { $sum: '$orderStatus.order_amount' },
-          avgAmount: { $avg: '$orderStatus.order_amount' }
+          totalAmount: {
+            $sum: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          },
+          avgAmount: {
+            $avg: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          }
         }
       },
       {
@@ -451,9 +516,7 @@ router.get('/transaction-summary', authenticateToken, [
     });
   }
 });
-
-// Get top performing schools
-router.get('/top-schools', authenticateToken, [
+  router.get('/top-schools', authenticateToken, [
   query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('Limit must be between 1 and 50'),
   query('sort_by').optional().isIn(['transactions', 'amount']).withMessage('sort_by must be transactions or amount')
 ], async (req, res) => {
@@ -469,12 +532,11 @@ router.get('/top-schools', authenticateToken, [
 
     const limit = parseInt(req.query.limit) || 10;
     const sortBy = req.query.sort_by || 'transactions';
-
-    const topSchools = await Order.aggregate([
+      const topSchools = await Order.aggregate([
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -491,15 +553,27 @@ router.get('/top-schools', authenticateToken, [
           totalTransactions: { $sum: 1 },
           successfulTransactions: {
             $sum: {
-              $cond: [{ $eq: ['$orderStatus.status', 'success'] }, 1, 0]
+              $cond: [
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['success']] }, 
+                1, 
+                0
+              ]
             }
           },
-          totalAmount: { $sum: '$orderStatus.order_amount' },
+          totalAmount: {
+            $sum: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          },
           successfulAmount: {
             $sum: {
               $cond: [
-                { $eq: ['$orderStatus.status', 'success'] },
-                '$orderStatus.order_amount',
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['success']] },
+                { $ifNull: ['$orderStatus.order_amount', '$amount'] },
                 0
               ]
             }
@@ -547,9 +621,7 @@ router.get('/top-schools', authenticateToken, [
     });
   }
 });
-
-// Get payment gateway performance
-router.get('/gateway-performance', authenticateToken, [
+  router.get('/gateway-performance', authenticateToken, [
   query('date_from').optional().isISO8601().withMessage('Invalid date format for date_from'),
   query('date_to').optional().isISO8601().withMessage('Invalid date format for date_to')
 ], async (req, res) => {
@@ -572,15 +644,14 @@ router.get('/gateway-performance', authenticateToken, [
         $lte: dateTo
       }
     };
-
-    const gatewayPerformance = await Order.aggregate([
+      const gatewayPerformance = await Order.aggregate([
       {
         $match: matchConditions
       },
       {
         $lookup: {
           from: 'orderstatuses',
-          localField: '_id',
+          localField: 'custom_order_id',  // FIXED: Use custom_order_id
           foreignField: 'collect_id',
           as: 'orderStatus'
         }
@@ -597,25 +668,45 @@ router.get('/gateway-performance', authenticateToken, [
           totalTransactions: { $sum: 1 },
           successfulTransactions: {
             $sum: {
-              $cond: [{ $eq: ['$orderStatus.status', 'success'] }, 1, 0]
+              $cond: [
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['success']] }, 
+                1, 
+                0
+              ]
             }
           },
           failedTransactions: {
             $sum: {
-              $cond: [{ $eq: ['$orderStatus.status', 'failed'] }, 1, 0]
+              $cond: [
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['failed', 'failure']] }, 
+                1, 
+                0
+              ]
             }
           },
           pendingTransactions: {
             $sum: {
-              $cond: [{ $eq: ['$orderStatus.status', 'pending'] }, 1, 0]
+              $cond: [
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['pending', 'processing']] }, 
+                1, 
+                0
+              ]
             }
           },
-          totalAmount: { $sum: '$orderStatus.order_amount' },
+          totalAmount: {
+            $sum: {
+              $cond: {
+                if: '$orderStatus.order_amount',
+                then: '$orderStatus.order_amount',
+                else: '$amount'
+              }
+            }
+          },
           successfulAmount: {
             $sum: {
               $cond: [
-                { $eq: ['$orderStatus.status', 'success'] },
-                '$orderStatus.order_amount',
+                { $in: [{ $toLower: { $ifNull: ['$orderStatus.status', 'pending'] } }, ['success']] },
+                { $ifNull: ['$orderStatus.order_amount', '$amount'] },
                 0
               ]
             }

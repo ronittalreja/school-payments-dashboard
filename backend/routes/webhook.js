@@ -4,16 +4,12 @@ const OrderStatus = require('../models/OrderStatus');
 const Order = require('../models/Order');
 
 const router = express.Router();
-
-// POST /api/webhook
-router.post('/', async (req, res) => {
+  router.post('/', async (req, res) => {
   let webhookLog;
   
   try {
     const { status, order_info } = req.body;
-
-    // 1️⃣ Log the webhook attempt first
-    webhookLog = new WebhookLog({
+      webhookLog = new WebhookLog({
       order_id: order_info?.order_id || 'unknown',
       payload: req.body,
       status: status || 0
@@ -21,19 +17,13 @@ router.post('/', async (req, res) => {
     
     await webhookLog.save();
     console.log(`📝 Webhook logged for order: ${order_info?.order_id}`);
-
-    // 2️⃣ Validate required data
-    if (!order_info || !order_info.order_id) {
+      if (!order_info || !order_info.order_id) {
       throw new Error('Missing order_info or order_id in webhook payload');
     }
-
-    // 3️⃣ Find the order by custom_order_id
-    const order = await Order.findOne({ custom_order_id: order_info.order_id });
+      const order = await Order.findOne({ custom_order_id: order_info.order_id });
     if (!order) {
       console.warn(`Order not found: ${order_info.order_id}`);
-      
-      // Update webhook log
-      webhookLog.error_message = 'Order not found in orders collection';
+        webhookLog.error_message = 'Order not found in orders collection';
       webhookLog.processed = true;
       webhookLog.processed_at = new Date();
       await webhookLog.save();
@@ -43,9 +33,7 @@ router.post('/', async (req, res) => {
         message: 'Order not found in orders collection'
       });
     }
-
-    // 4️⃣ Check if OrderStatus already exists - FIXED: Use order._id instead of order_info.order_id
-    let orderStatus = await OrderStatus.findOne({ collect_id: order.custom_order_id });
+      let orderStatus = await OrderStatus.findOne({ collect_id: order.custom_order_id });
     
     const updateData = {
       collect_id: order.custom_order_id, // Use the custom_order_id from the found order
@@ -63,35 +51,27 @@ router.post('/', async (req, res) => {
     };
 
     if (orderStatus) {
-      // Update existing record
-      orderStatus = await OrderStatus.findOneAndUpdate(
+        orderStatus = await OrderStatus.findOneAndUpdate(
         { collect_id: order.custom_order_id },
         updateData,
         { new: true }
       );
     } else {
-      // Create new record
-      orderStatus = await OrderStatus.create(updateData);
+        orderStatus = await OrderStatus.create(updateData);
     }
-
-    // 5️⃣ Update the main Order status as well
-    await Order.findOneAndUpdate(
+      await Order.findOneAndUpdate(
       { custom_order_id: order_info.order_id },
       { 
         status: order_info.status === 'SUCCESS' ? 'success' : 
                 order_info.status === 'FAILED' ? 'failed' : 'processing'
       }
     );
-
-    // 6️⃣ Mark webhook as processed
-    webhookLog.processed = true;
+      webhookLog.processed = true;
     webhookLog.processed_at = new Date();
     await webhookLog.save();
 
     console.log(`✅ Webhook processed successfully: ${order_info.order_id}`);
-
-    // 7️⃣ Respond 200 to acknowledge webhook
-    res.status(200).json({
+      res.status(200).json({
       success: true,
       message: 'Webhook processed successfully',
       orderStatus
@@ -99,9 +79,7 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Webhook processing error:', error);
-
-    // Update existing webhook log with error
-    if (webhookLog) {
+      if (webhookLog) {
       try {
         webhookLog.error_message = error.message;
         webhookLog.processed = false;
@@ -110,8 +88,7 @@ router.post('/', async (req, res) => {
         console.error('Failed to update webhook log with error:', logUpdateError);
       }
     } else {
-      // Create new webhook log if initial creation failed
-      try {
+        try {
         await new WebhookLog({
           order_id: req.body?.order_info?.order_id || 'unknown',
           payload: req.body,
@@ -123,9 +100,7 @@ router.post('/', async (req, res) => {
         console.error('Failed to log webhook error:', logError);
       }
     }
-
-    // Always acknowledge webhook (gateway expects 200)
-    res.status(200).json({
+      res.status(200).json({
       success: false,
       message: 'Webhook received but failed internally',
       error: error.message

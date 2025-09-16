@@ -1,5 +1,4 @@
-// backend/server.js
-
+  
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -7,24 +6,16 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
-
-// Import routes
-const authRoutes = require('./routes/auth');
+  const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payments');
 const webhookRoutes = require('./routes/webhook');
 const transactionRoutes = require('./routes/transactions');
 const dashboardRoutes = require('./routes/dashboard');
-
-// Import middleware
-const { requestLogger, errorLogger } = require('./middleware/logger');
+  const { requestLogger, errorLogger } = require('./middleware/logger');
 
 const app = express();
-
-// Trust proxy for accurate IP addresses in production
-app.set('trust proxy', 1);
-
-// Security middleware
-app.use(helmet({
+  app.set('trust proxy', 1);
+  app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -37,9 +28,7 @@ app.use(helmet({
 }));
 
 app.use(compression());
-
-// Rate limiting - different limits for different endpoints
-const authLimiter = rateLimit({
+  const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // limit each IP to 10 requests per windowMs for auth
   message: {
@@ -69,9 +58,7 @@ const webhookLimiter = rateLimit({
     message: 'Webhook rate limit exceeded.'
   }
 });
-
-// CORS configuration
-const corsOptions = {
+  const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
@@ -79,9 +66,7 @@ const corsOptions = {
       'http://localhost:3001',
       'https://dev-vanilla.edviron.com'
     ].filter(Boolean);
-    
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+      if (!origin) return callback(null, true);
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
@@ -95,9 +80,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
-// Body parsing middleware with size limits
-app.use(express.json({ 
+  app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -107,12 +90,8 @@ app.use(express.urlencoded({
   extended: true,
   limit: '10mb'
 }));
-
-// Request logging
-app.use(requestLogger);
-
-// Health check endpoint (before rate limiting)
-app.get('/health', (req, res) => {
+  app.use(requestLogger);
+  app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     status: 'OK',
@@ -123,9 +102,7 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'development'
   });
 });
-
-// API status endpoint
-app.get('/api/status', (req, res) => {
+  app.get('/api/status', (req, res) => {
   res.json({
     success: true,
     message: 'School Payment API is running',
@@ -139,9 +116,7 @@ app.get('/api/status', (req, res) => {
     }
   });
 });
-
-// Database connection with retry logic
-const connectDB = async () => {
+  const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
       useNewUrlParser: true,
@@ -154,9 +129,7 @@ const connectDB = async () => {
     });
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
-    
-    // Handle connection events
-    mongoose.connection.on('error', (err) => {
+      mongoose.connection.on('error', (err) => {
       console.error('MongoDB connection error:', err);
     });
 
@@ -173,29 +146,19 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
-
-// Connect to database
-connectDB();
-
-// Apply rate limiting to routes
-app.use('/api/auth', authLimiter);
+  connectDB();
+  app.use('/api/auth', authLimiter);
 app.use('/api/payment', apiLimiter);
 app.use('/api/transactions', apiLimiter);
 app.use('/api/dashboard', apiLimiter);
 app.use('/api/webhook', webhookLimiter);
-
-// Routes
-app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-
-// Error logging middleware
-app.use(errorLogger);
-
-// Global error handler
-app.use((err, req, res, next) => {
+  app.use(errorLogger);
+  app.use((err, req, res, next) => {
   console.error('Global error handler:', {
     error: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
@@ -205,9 +168,7 @@ app.use((err, req, res, next) => {
     userAgent: req.get('User-Agent'),
     timestamp: new Date().toISOString()
   });
-
-  // Handle specific error types
-  if (err.name === 'ValidationError') {
+    if (err.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
       message: 'Validation Error',
@@ -243,17 +204,13 @@ app.use((err, req, res, next) => {
       message: 'Token expired'
     });
   }
-
-  // Default error response
-  res.status(err.statusCode || 500).json({
+    res.status(err.statusCode || 500).json({
     success: false,
     message: err.message || 'Internal server error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
-
-// 404 handler for undefined routes
-app.use('*', (req, res) => {
+  app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
@@ -266,31 +223,21 @@ app.use('*', (req, res) => {
     }
   });
 });
-
-// Graceful shutdown handling
-const gracefulShutdown = (signal) => {
+  const gracefulShutdown = (signal) => {
   console.log(`Received ${signal}. Starting graceful shutdown...`);
-  
-  // Close server
-  server.close(() => {
+    server.close(() => {
     console.log('HTTP server closed');
-    
-    // Close database connection
-    mongoose.connection.close(false, () => {
+      mongoose.connection.close(false, () => {
       console.log('MongoDB connection closed');
       process.exit(0);
     });
   });
-
-  // Force close after 10 seconds
-  setTimeout(() => {
+    setTimeout(() => {
     console.error('Forcing shutdown after timeout');
     process.exit(1);
   }, 10000);
 };
-
-// Start server
-const PORT = process.env.PORT || 3001;
+  const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, () => {
   console.log(`
 🚀 School Payment API Server Started
@@ -302,25 +249,19 @@ const server = app.listen(PORT, () => {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);
 });
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
+  process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   server.close(() => {
     process.exit(1);
   });
 });
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   server.close(() => {
     process.exit(1);
   });
 });
-
-// Handle graceful shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 module.exports = app;

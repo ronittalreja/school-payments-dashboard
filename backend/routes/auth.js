@@ -4,9 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const router = express.Router();
-
-// Register
-router.post('/register', [
+  router.post('/register', [
   body('username')
     .isLength({ min: 3, max: 30 })
     .withMessage('Username must be between 3 and 30 characters')
@@ -31,9 +29,7 @@ router.post('/register', [
     }
 
     const { username, email, password } = req.body;
-
-    // Check if user already exists
-    const existingUser = await User.findOne({
+      const existingUser = await User.findOne({
       $or: [{ email }, { username }]
     });
 
@@ -43,13 +39,9 @@ router.post('/register', [
         message: 'User with this email or username already exists'
       });
     }
-
-    // Create new user
-    const user = new User({ username, email, password });
+      const user = new User({ username, email, password });
     await user.save();
-
-    // Generate JWT token
-    const token = jwt.sign(
+      const token = jwt.sign(
       { userId: user._id, username: user.username },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
@@ -77,9 +69,7 @@ router.post('/register', [
     });
   }
 });
-
-// Login
-router.post('/login', [
+  router.post('/login', [
   body('username').notEmpty().withMessage('Username is required'),
   body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
@@ -94,27 +84,21 @@ router.post('/login', [
     }
 
     const { username, password } = req.body;
-
-    // Find user
-    const user = await User.findOne({ username });
+      const user = await User.findOne({ username });
     if (!user) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
-
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
+      const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
-
-    // Generate JWT token
-    const token = jwt.sign(
+      const token = jwt.sign(
       { userId: user._id, username: user.username },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
@@ -142,10 +126,7 @@ router.post('/login', [
     });
   }
 });
-
-
-// routes/auth.js - Fixed validation
-router.post('/login', [
+  router.post('/login', [
   body('username')
     .trim()
     .isLength({ min: 3 })
@@ -165,9 +146,7 @@ router.post('/login', [
     }
 
     const { username, password } = req.body;
-
-    // Find user by username OR email
-    const user = await User.findOne({
+      const user = await User.findOne({
       $or: [{ username }, { email: username }]
     });
 

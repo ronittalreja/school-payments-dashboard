@@ -34,9 +34,7 @@ const webhookLogSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
-// Index for efficient querying
-webhookLogSchema.index({ received_at: -1 });
+  webhookLogSchema.index({ received_at: -1 });
 webhookLogSchema.index({ processed: 1, received_at: -1 });
 
 module.exports = mongoose.model('WebhookLog', webhookLogSchema);

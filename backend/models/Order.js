@@ -54,9 +54,7 @@ const orderSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
-// Add indexes for better performance
-orderSchema.index({ school_id: 1 });
+  orderSchema.index({ school_id: 1 });
 orderSchema.index({ custom_order_id: 1 });
 orderSchema.index({ collect_request_id: 1 }, { sparse: true });
 orderSchema.index({ status: 1 });

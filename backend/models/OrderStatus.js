@@ -57,9 +57,7 @@ const orderStatusSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
-// Create proper indexes
-orderStatusSchema.index({ collect_id: 1 }, { unique: true });
+  orderStatusSchema.index({ collect_id: 1 }, { unique: true });
 orderStatusSchema.index({ collect_request_id: 1 }, { sparse: true });
 orderStatusSchema.index({ status: 1 });
 

@@ -1,5 +1,4 @@
-// backend/src/services/paymentService.js
-
+  
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const PaymentTransaction = require('../models/PaymentTransaction');
@@ -11,29 +10,19 @@ class PaymentService {
     this.pgKey = process.env.PG_KEY;
     this.schoolId = process.env.SCHOOL_ID;
   }
-
-  // Generate JWT sign for payment requests
-  generatePaymentSign(payload) {
+    generatePaymentSign(payload) {
     return jwt.sign(payload, this.pgKey, { algorithm: 'HS256' });
   }
-
-  // Create collect request
-  async createCollectRequest(paymentData) {
+    async createCollectRequest(paymentData) {
     try {
       const { amount, callback_url = process.env.FRONTEND_URL } = paymentData;
-
-      // Prepare JWT payload
-      const jwtPayload = {
+        const jwtPayload = {
         school_id: this.schoolId,
         amount: amount.toString(),
         callback_url
       };
-
-      // Generate sign
-      const sign = this.generatePaymentSign(jwtPayload);
-
-      // Prepare request payload
-      const requestPayload = {
+        const sign = this.generatePaymentSign(jwtPayload);
+        const requestPayload = {
         school_id: this.schoolId,
         amount: amount.toString(),
         callback_url,
@@ -44,9 +33,7 @@ class PaymentService {
         ...requestPayload,
         sign: sign.substring(0, 50) + '...' // Log truncated sign for security
       });
-
-      // Make API request
-      const response = await axios.post(
+        const response = await axios.post(
         `${this.baseURL}/create-collect-request`,
         requestPayload,
         {
@@ -63,9 +50,7 @@ class PaymentService {
         collect_request_id: result.collect_request_id,
         has_url: !!result.Collect_request_url
       });
-
-      // Save payment transaction record
-      const paymentTransaction = new PaymentTransaction({
+        const paymentTransaction = new PaymentTransaction({
         collect_request_id: result.collect_request_id,
         school_id: this.schoolId,
         amount: parseFloat(amount),
@@ -112,12 +97,9 @@ class PaymentService {
       throw new Error(`Payment request failed: ${error.message}`);
     }
   }
-
-  // Check payment status
-  async checkPaymentStatus(collectRequestId) {
+    async checkPaymentStatus(collectRequestId) {
     try {
-      // Generate JWT sign for status check
-      const jwtPayload = {
+        const jwtPayload = {
         school_id: this.schoolId,
         collect_request_id: collectRequestId
       };
@@ -125,9 +107,7 @@ class PaymentService {
       const sign = this.generatePaymentSign(jwtPayload);
 
       console.log('Checking payment status for:', collectRequestId);
-
-      // Make API request
-      const response = await axios.get(
+        const response = await axios.get(
         `${this.baseURL}/collect-request/${collectRequestId}`,
         {
           params: {
@@ -148,9 +128,7 @@ class PaymentService {
         status: result.status,
         amount: result.amount
       });
-
-      // Update local payment transaction record
-      await PaymentTransaction.findOneAndUpdate(
+        await PaymentTransaction.findOneAndUpdate(
         { collect_request_id: collectRequestId },
         {
           status: result.status.toLowerCase(),
@@ -191,9 +169,7 @@ class PaymentService {
       throw new Error(`Status check failed: ${error.message}`);
     }
   }
-
-  // Get payment transaction by collect request ID
-  async getPaymentTransaction(collectRequestId) {
+    async getPaymentTransaction(collectRequestId) {
     try {
       const transaction = await PaymentTransaction.findOne({ 
         collect_request_id: collectRequestId 
@@ -213,18 +189,14 @@ class PaymentService {
       throw error;
     }
   }
-
-  // Update payment transaction status (used by webhooks)
-  async updatePaymentStatus(collectRequestId, statusData) {
+    async updatePaymentStatus(collectRequestId, statusData) {
     try {
       const updateData = {
         status: statusData.status.toLowerCase(),
         updated_at: new Date(),
         webhook_data: statusData
       };
-
-      // Add payment completion data if successful
-      if (statusData.status.toLowerCase() === 'success') {
+        if (statusData.status.toLowerCase() === 'success') {
         updateData.completed_at = new Date();
         updateData.payment_method = statusData.payment_method;
         updateData.transaction_id = statusData.transaction_id;
@@ -255,9 +227,7 @@ class PaymentService {
       throw error;
     }
   }
-
-  // Get all payment transactions with filters
-  async getPaymentTransactions(filters = {}) {
+    async getPaymentTransactions(filters = {}) {
     try {
       const {
         page = 1,
@@ -303,21 +273,16 @@ class PaymentService {
       throw error;
     }
   }
-
-  // Validate webhook signature (if provided by payment gateway)
-  validateWebhookSignature(payload, signature) {
+    validateWebhookSignature(payload, signature) {
     try {
-      // Generate expected signature
-      const expectedSignature = jwt.sign(payload, this.pgKey);
+        const expectedSignature = jwt.sign(payload, this.pgKey);
       return expectedSignature === signature;
     } catch (error) {
       console.error('Webhook signature validation error:', error);
       return false;
     }
   }
-
-  // Process webhook payload
-  async processWebhook(webhookPayload) {
+    async processWebhook(webhookPayload) {
     try {
       const {
         collect_request_id,
@@ -331,9 +296,7 @@ class PaymentService {
       if (!collect_request_id) {
         throw new Error('Missing collect_request_id in webhook payload');
       }
-
-      // Update payment transaction
-      const result = await this.updatePaymentStatus(collect_request_id, {
+        const result = await this.updatePaymentStatus(collect_request_id, {
         status,
         amount,
         payment_method,
@@ -341,9 +304,7 @@ class PaymentService {
         error_message,
         timestamp: new Date()
       });
-
-      // Log webhook processing
-      console.log('Webhook processed successfully:', {
+        console.log('Webhook processed successfully:', {
         collect_request_id,
         status,
         timestamp: new Date().toISOString()
@@ -356,9 +317,7 @@ class PaymentService {
       throw error;
     }
   }
-
-  // Retry failed payment
-  async retryPayment(collectRequestId) {
+    async retryPayment(collectRequestId) {
     try {
       const transaction = await PaymentTransaction.findOne({
         collect_request_id: collectRequestId
@@ -371,9 +330,7 @@ class PaymentService {
       if (transaction.status === 'success') {
         throw new Error('Cannot retry successful payment');
       }
-
-      // Create new collect request with same details
-      return await this.createCollectRequest({
+        return await this.createCollectRequest({
         amount: transaction.amount,
         callback_url: transaction.callback_url
       });
