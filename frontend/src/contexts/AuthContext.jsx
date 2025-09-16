@@ -9,8 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
 
   useEffect(() => {
-    // Check for existing token on mount
-    const savedToken = localStorage.getItem('token');
+      const savedToken = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
     
     if (savedToken && savedUser) {

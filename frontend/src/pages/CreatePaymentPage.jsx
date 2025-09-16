@@ -37,10 +37,8 @@ const CreatePaymentPage = () => {
     setResult(null);
 
     try {
-      // Structure the payment data according to the backend schema
-      const paymentData = {
-        // Backend will use these for Order schema
-        school_id: "65b0e6293e9f76a9694d84b4", // From assessment document
+        const paymentData = {
+          school_id: "65b0e6293e9f76a9694d84b4", // From assessment document
         trustee_id: "65b0e552dd31950a9b41c5ba", // From assessment document
         gateway_name: formData.gateway_name,
         student_info: {
@@ -48,8 +46,7 @@ const CreatePaymentPage = () => {
           id: formData.student_id,
           email: formData.student_email
         },
-        // For Edviron API
-        amount: formData.amount,
+          amount: formData.amount,
         callback_url: formData.callback_url
       };
 

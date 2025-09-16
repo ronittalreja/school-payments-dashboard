@@ -57,8 +57,7 @@ const App = () => {
   const { currentPath, navigate } = useRouter();
 
   useEffect(() => {
-    // Redirect logic
-    if (!loading) {
+      if (!loading) {
       if (!user && !['/', '/login', '/register'].includes(currentPath)) {
         navigate('/login');
       } else if (user && ['/login', '/register'].includes(currentPath)) {
@@ -70,17 +69,13 @@ const App = () => {
   if (loading) {
     return <LoadingSpinner text="Initializing..." />;
   }
-
-  // Public routes
-  if (!user) {
+    if (!user) {
     if (currentPath === '/register') {
       return <Register />;
     }
     return <Login />;
   }
-
-  // Protected routes
-  const renderPage = () => {
+    const renderPage = () => {
     switch (currentPath) {
       case '/dashboard':
         return <Dashboard />;
@@ -111,8 +106,7 @@ const App = () => {
     </div>
   );
 };
-// Root Component with Providers
-const Root = () => {
+  const Root = () => {
   return (
     <ThemeProvider>
       <Router>

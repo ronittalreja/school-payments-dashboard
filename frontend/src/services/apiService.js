@@ -1,22 +1,17 @@
-// frontend/src/services/apiService.js
-
+  
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
   }
-
-  // Get auth headers with token
-  getAuthHeaders(token) {
+    getAuthHeaders(token) {
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     };
   }
-
-  // Helper method for making requests
-  async makeRequest(url, options = {}) {
+    async makeRequest(url, options = {}) {
     console.log('Making request to:', `${this.baseURL}${url}`);
     console.log('Headers:', options.headers);
     
@@ -34,12 +29,9 @@ class ApiService {
       if (!response.ok) {
         const error = await response.json();
         console.log('Error response:', error);
-        
-        // Handle 403 specifically
-        if (response.status === 403) {
+          if (response.status === 403) {
           console.error('Authentication failed - token may be expired or invalid');
-          // You might want to redirect to login here
-        }
+          }
         
         throw new Error(error.message || `HTTP error! status: ${response.status}`);
       }
@@ -50,9 +42,7 @@ class ApiService {
       throw error;
     }
   }
-
-  // Authentication APIs
-  async login(credentials) {
+    async login(credentials) {
     return this.makeRequest('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials)
@@ -65,9 +55,7 @@ class ApiService {
       body: JSON.stringify(userData)
     });
   }
-
-  // Transaction APIs
-  async fetchTransactions(token, params = {}) {
+    async fetchTransactions(token, params = {}) {
     const queryParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== '') {
@@ -100,9 +88,7 @@ class ApiService {
       headers: this.getAuthHeaders(token)
     });
   }
-
-  // Payment APIs
-  async createPayment(token, paymentData) {
+    async createPayment(token, paymentData) {
     return this.makeRequest('/payment/create-payment', {
       method: 'POST',
       headers: this.getAuthHeaders(token),
@@ -149,9 +135,7 @@ class ApiService {
       headers: this.getAuthHeaders(token)
     });
   }
-
-  // Dashboard APIs
-  async getDashboardStats(token, params = {}) {
+    async getDashboardStats(token, params = {}) {
     const queryParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== '') {
@@ -212,9 +196,7 @@ class ApiService {
       headers: this.getAuthHeaders(token)
     });
   }
-
-  // Utility method for file uploads (if needed)
-  async uploadFile(token, file, endpoint) {
+    async uploadFile(token, file, endpoint) {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -237,9 +219,7 @@ class ApiService {
       throw error;
     }
   }
-
-  // Webhook simulation for testing
-  async simulateWebhook(token, webhookData) {
+    async simulateWebhook(token, webhookData) {
     return this.makeRequest('/webhook', {
       method: 'POST',
       headers: this.getAuthHeaders(token),
@@ -247,7 +227,5 @@ class ApiService {
     });
   }
 }
-
-// Create and export singleton instance
-const apiService = new ApiService();
+  const apiService = new ApiService();
 export default apiService;

@@ -64,16 +64,12 @@ const Register = () => {
 
     if (error.response?.data) {
       const data = error.response.data;
-
-      // Express-validator errors
-      if (data.errors) {
+        if (data.errors) {
         data.errors.forEach((err) => {
           newErrors[err.param] = err.msg;
         });
       }
-
-      // Generic backend messages (e.g. duplicate user)
-      if (data.message && Object.keys(newErrors).length === 0) {
+        if (data.message && Object.keys(newErrors).length === 0) {
         newErrors.general = data.message;
       }
     } else {
